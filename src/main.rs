@@ -78,6 +78,22 @@ impl Path {
 
         extended_path
     }
+
+    fn is_subpath_of(&self, other: &Path) -> bool {
+        let len = self.nodes.len();
+        let other_len = other.nodes.len();
+        if len > other_len {
+            return false;
+        }
+
+        for i in 0..=(other_len - len) {
+            if other.nodes[i..(i + len)] == self.nodes {
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 fn find_prime_paths(graph: DotGraph) -> Vec<DotGraph> {
@@ -96,7 +112,9 @@ fn find_prime_paths(graph: DotGraph) -> Vec<DotGraph> {
         paths = extend_paths(&graph, paths, &mut unextendable_paths);
     }
 
-    unextendable_paths
+    let prime_paths = remove_subpaths(unextendable_paths);
+
+    prime_paths
         .into_iter()
         .enumerate()
         .map(|(i, p)| {
@@ -211,4 +229,19 @@ fn get_neighbors<'g>(graph: &'g Graph, node: &Node) -> Vec<(&'g Id, &'g Edge)> {
     }
 
     neighbors
+}
+
+fn remove_subpaths(paths: Vec<Path>) -> Vec<Path> {
+    let mut maximal_paths = Vec::new();
+
+    for path in paths.into_iter().rev() {
+        if !maximal_paths
+            .iter()
+            .any(|max_path| path.is_subpath_of(max_path))
+        {
+            maximal_paths.push(path);
+        }
+    }
+
+    maximal_paths
 }
