@@ -7,6 +7,7 @@ use std::{
 
 use eyre::{eyre, Result};
 use graphviz_rust::{
+    cmd::{CommandArg, Format, Layout},
     dot_structures::{
         Attribute, Edge, EdgeTy, Graph as DotGraph, GraphAttributes, Id, Node, Stmt, Vertex,
     },
@@ -14,6 +15,9 @@ use graphviz_rust::{
 };
 
 const OUT_DIR: &str = "./paths";
+const RAW_EXT: &str = "dot";
+const FORMAT_EXT: &str = "png";
+const FORMAT: Format = Format::Png;
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -27,13 +31,26 @@ fn main() -> Result<()> {
 
             let out_dir = FsPath::new(OUT_DIR);
             fs::create_dir(out_dir)?;
-            for (i, path) in prime_paths.iter().enumerate() {
+            for (i, path) in prime_paths.into_iter().enumerate() {
+                let mut ctx = PrinterContext::default();
+                ctx.with_semi();
+                let dot = path.print(&mut ctx);
+
                 let mut file = OpenOptions::new()
                     .write(true)
                     .create_new(true)
-                    .open(out_dir.join(i.to_string()).with_extension("dot"))?;
-                let dot = path.print(&mut PrinterContext::default());
+                    .open(out_dir.join(i.to_string()).with_extension(RAW_EXT))?;
+
                 file.write_all(dot.as_bytes())?;
+
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(out_dir.join(i.to_string()).with_extension(FORMAT_EXT))?;
+
+                let args = vec![CommandArg::Format(FORMAT), CommandArg::Layout(Layout::Dot)];
+                let out = graphviz_rust::exec_dot(dot, args)?;
+                file.write_all(&out)?;
             }
 
             Ok(())
