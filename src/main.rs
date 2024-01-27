@@ -192,7 +192,15 @@ fn extend_paths(graph: &Graph, paths: Vec<Path>, unextendable_paths: &mut Vec<Pa
             unextendable_paths.push(path);
         } else {
             for (node, edge) in nexts {
-                extended_paths.push(path.clone_extend(node, edge));
+                if node == path.nodes.first().expect("empty path") {
+                    // full cycle
+                    unextendable_paths.push(path.clone_extend(node, edge));
+                } else if path.nodes.contains(node) {
+                    // would form cycle
+                    unextendable_paths.push(path.clone());
+                } else {
+                    extended_paths.push(path.clone_extend(node, edge));
+                }
             }
         }
     }
