@@ -1,10 +1,19 @@
-use std::{env, fs};
+use std::{
+    env,
+    fs::{self, OpenOptions},
+    io::Write,
+    path::Path as FsPath,
+};
 
 use eyre::{eyre, Result};
 use graphviz_rust::{
-    dot_structures::{Attribute, Edge, Graph as DotGraph, GraphAttributes, Id, Node, Stmt},
+    dot_structures::{
+        Attribute, Edge, EdgeTy, Graph as DotGraph, GraphAttributes, Id, Node, Stmt, Vertex,
+    },
     printer::{DotPrinter, PrinterContext},
 };
+
+const OUT_DIR: &str = "./paths";
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -16,9 +25,15 @@ fn main() -> Result<()> {
 
             let prime_paths = find_prime_paths(graph);
 
-            for path in prime_paths {
+            let out_dir = FsPath::new(OUT_DIR);
+            fs::create_dir(out_dir)?;
+            for (i, path) in prime_paths.iter().enumerate() {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(out_dir.join(i.to_string()).with_extension("dot"))?;
                 let dot = path.print(&mut PrinterContext::default());
-                println!("{}", dot);
+                file.write_all(dot.as_bytes())?;
             }
 
             Ok(())
@@ -43,11 +58,57 @@ struct Graph {
     edges: Vec<Edge>,
 }
 
+impl Graph {
+    fn get_node(&self, id: &Id) -> Option<&Node> {
+        self.nodes.iter().find(|n| n.id.0 == *id)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct Path {
+    nodes: Vec<Node>,
+    edges: Vec<Edge>,
+}
+
+impl Path {
+    fn clone_extend(&self, node: &Node, edge: &Edge) -> Self {
+        let mut extended_path = self.clone();
+        extended_path.nodes.push(node.clone());
+        extended_path.edges.push(edge.clone());
+
+        extended_path
+    }
+}
+
 fn find_prime_paths(graph: DotGraph) -> Vec<DotGraph> {
     let graph = deconstruct_graph(graph);
-    let graph = reconstruct_graph(graph, "g");
+    let mut paths: Vec<Path> = graph
+        .nodes
+        .iter()
+        .map(|n| Path {
+            nodes: vec![n.clone()],
+            edges: Vec::new(),
+        })
+        .collect();
+    let mut unextendable_paths = Vec::new();
 
-    todo!()
+    while !paths.is_empty() {
+        paths = extend_paths(&graph, paths, &mut unextendable_paths);
+    }
+
+    unextendable_paths
+        .into_iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let path_graph = Graph {
+                nodes: p.nodes,
+                edges: p.edges,
+                ..graph.clone()
+            };
+
+            reconstruct_graph(path_graph, &i.to_string())
+        })
+        .collect()
 }
 
 fn deconstruct_graph(graph: DotGraph) -> Graph {
@@ -102,4 +163,52 @@ fn reconstruct_graph(graph: Graph, id: &str) -> DotGraph {
             stmts,
         },
     }
+}
+
+fn extend_paths(graph: &Graph, paths: Vec<Path>, unextendable_paths: &mut Vec<Path>) -> Vec<Path> {
+    let mut extended_paths = Vec::new();
+    for path in paths {
+        let nexts = get_nexts(graph, &path);
+
+        if nexts.is_empty() {
+            unextendable_paths.push(path);
+        } else {
+            for (node, edge) in nexts {
+                extended_paths.push(path.clone_extend(node, edge));
+            }
+        }
+    }
+
+    extended_paths
+}
+
+fn get_nexts<'g>(graph: &'g Graph, path: &Path) -> Vec<(&'g Node, &'g Edge)> {
+    match path.nodes.last() {
+        Some(last) => {
+            let neighbors = get_neighbors(graph, last);
+
+            neighbors
+                .iter()
+                .map(|(id, e)| (graph.get_node(id).expect("unknown node"), *e))
+                .collect()
+        }
+        None => panic!("Empty path"),
+    }
+}
+
+fn get_neighbors<'g>(graph: &'g Graph, node: &Node) -> Vec<(&'g Id, &'g Edge)> {
+    let id = &node.id.0;
+    let mut neighbors = Vec::new();
+
+    for edge in &graph.edges {
+        match &edge.ty {
+            EdgeTy::Pair(Vertex::N(from), Vertex::N(to)) if *id == from.0 => {
+                neighbors.push((&to.0, edge))
+            }
+            EdgeTy::Pair(_, _) => {}
+            EdgeTy::Chain(_) => todo!(),
+        }
+    }
+
+    neighbors
 }
